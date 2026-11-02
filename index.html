@@ -240,6 +240,7 @@
           <button onclick="switchTab('quiz')" id="nav-quiz" class="px-3 py-1.5 rounded-md text-xs font-semibold opacity-80 hover:opacity-100">Quiz Engine</button>
           <button onclick="switchTab('review')" id="nav-review" class="px-3 py-1.5 rounded-md text-xs font-semibold opacity-80 hover:opacity-100">Review</button>
           <button onclick="switchTab('analytics')" id="nav-analytics" class="px-3 py-1.5 rounded-md text-xs font-semibold opacity-80 hover:opacity-100">Analytics</button>
+          <button onclick="switchTab('slides')" id="nav-slides" class="px-3 py-1.5 rounded-md text-xs font-semibold opacity-80 hover:opacity-100">Slides</button>
           <button onclick="switchTab('bank')" id="nav-bank" class="px-3 py-1.5 rounded-md text-xs font-semibold opacity-80 hover:opacity-100">Bank</button>
         </nav>
 
@@ -377,9 +378,24 @@
           <div id="options-container" class="space-y-3"></div>
 
           <!-- Explanation Box -->
-          <div id="explanation-box" class="hidden card-theme border rounded-xl p-5 space-y-2">
+          <div id="explanation-box" class="hidden card-theme border rounded-xl p-5 space-y-3">
             <h4 class="font-bold text-sm uppercase text-slate-900 dark:text-slate-100">Explanation & Rationale</h4>
             <p id="explanation-text" class="text-sm leading-relaxed whitespace-pre-line text-slate-800 dark:text-slate-200"></p>
+
+            <!-- Slide Reference Link -->
+            <div id="reference-box" class="hidden pt-3 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+              <span class="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                📑 <span id="reference-label">Lecture Slide Reference</span>
+              </span>
+              <div class="flex gap-2">
+                <button onclick="openSlideReferenceFromCurrent()" class="px-3 py-1.5 text-xs font-bold rounded-lg btn-primary-theme shadow flex items-center gap-1">
+                  View Slide in App ➔
+                </button>
+                <a id="reference-external-link" href="#" target="_blank" class="px-3 py-1.5 text-xs font-bold rounded-lg card-theme border hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-slate-100">
+                  Open PDF ↗
+                </a>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -435,7 +451,48 @@
       </div>
     </section>
 
-    <!-- TAB 5: MANAGE BANK & JSON IMPORTER -->
+    <!-- TAB 5: LECTURE SLIDES VIEWER -->
+    <section id="tab-slides" class="hidden space-y-6">
+      <div class="card-theme rounded-2xl p-6 shadow-sm border space-y-4">
+        <div class="flex flex-wrap justify-between items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+          <div>
+            <h2 class="text-xl font-bold text-slate-900 dark:text-slate-100">Lecture Slides Viewer</h2>
+            <p class="text-xs text-slate-600 dark:text-slate-300">Browse uploaded lecture PDF slides or jump directly to question references.</p>
+          </div>
+          
+          <!-- Slide Selection & Page Input Controls -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <select id="slide-pdf-selector" onchange="loadSelectedPdf(this.value)" class="px-3 py-1.5 text-xs rounded-lg border card-theme font-semibold outline-none">
+              <option value="">-- Select Lecture PDF --</option>
+            </select>
+            
+            <div class="flex items-center gap-1">
+              <span class="text-xs font-medium text-slate-600 dark:text-slate-300">Page:</span>
+              <input type="number" id="slide-page-input" min="1" value="1" class="w-16 px-2 py-1.5 text-xs rounded-lg border card-theme font-semibold text-center outline-none">
+              <button onclick="jumpToPageInput()" class="px-3 py-1.5 text-xs font-bold rounded-lg btn-primary-theme">Go</button>
+            </div>
+
+            <a id="slides-open-external" href="#" target="_blank" class="px-3 py-1.5 text-xs font-bold rounded-lg border card-theme text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800">
+              Open Fullscreen ↗
+            </a>
+          </div>
+        </div>
+
+        <!-- Embedded PDF Frame Viewport -->
+        <div class="w-full h-[75vh] rounded-xl overflow-hidden border card-theme flex flex-col items-center justify-center relative">
+          <iframe id="pdf-viewer-frame" src="about:blank" class="w-full h-full border-none hidden"></iframe>
+          <div id="pdf-empty-state" class="text-center p-8 space-y-2">
+            <div class="text-4xl">📄</div>
+            <p class="text-sm font-bold text-slate-900 dark:text-slate-100">No Slide Selected</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+              Select a lecture PDF from the dropdown above or click <strong>"View Slide in App"</strong> when reviewing a question.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 6: MANAGE BANK & JSON IMPORTER -->
     <section id="tab-bank" class="hidden space-y-6">
       <div class="card-theme rounded-2xl p-6 shadow-sm border">
         <h2 class="text-xl font-bold mb-2 text-slate-900 dark:text-slate-100">JSON Question Bank Importer</h2>
@@ -483,11 +540,16 @@
     let quizMode = 'practice';
     let currentReviewFilter = 'all';
 
+    // Slide state tracking
+    let currentPdfUrl = '';
+    let currentPdfPage = 1;
+
     window.onload = function() {
       loadFromStorage();
       renderCategoryGrid();
       renderAnalytics();
       renderReviewList();
+      populatePdfSelector();
     };
 
     let dbInstance = null;
@@ -512,8 +574,6 @@
       });
     }
 
-    
-    
     function determineCategory(item, data, path) {
       if (item && item.category) return item.category;
       if (item && item.discipline) return item.discipline;
@@ -547,11 +607,9 @@
       return 'Biochemistry';
     }
 
-
-async function loadRemoteQuestions() {
+    async function loadRemoteQuestions() {
       let remoteQuestions = [];
       
-      // 1. Try to fetch questions/manifest.json relative to index.html
       try {
         const manifestRes = await fetch('questions/manifest.json');
         if (manifestRes.ok) {
@@ -580,6 +638,9 @@ async function loadRemoteQuestions() {
                     explanation: item.rationale || item.explanation || item.reasoning || '',
                     category: cat,
                     lecture: item.lecture_title || manifestLec || rootLec || item.lecture || 'General Vignettes',
+                    pdf_url: item.pdf_url || item.slide_pdf || item.pdf || data.pdf_url || '',
+                    slide_number: item.slide_number || item.slide || item.page || '',
+                    reference_text: item.reference_text || item.reference || '',
                     order: item.order || ''
                   });
                 });
@@ -593,7 +654,6 @@ async function loadRemoteQuestions() {
         console.warn("No questions/manifest.json found or failed to fetch:", err);
       }
 
-      // 2. If running on GitHub Pages and manifest wasn't found, auto-detect JSON files via GitHub API
       if (remoteQuestions.length === 0 && location.hostname.endsWith('github.io')) {
         try {
           const parts = location.pathname.split('/').filter(Boolean);
@@ -622,6 +682,9 @@ async function loadRemoteQuestions() {
                         explanation: item.rationale || item.explanation || item.reasoning || '',
                         category: cat,
                         lecture: item.lecture_title || rootLec || item.lecture || 'General Vignettes',
+                        pdf_url: item.pdf_url || item.slide_pdf || item.pdf || data.pdf_url || '',
+                        slide_number: item.slide_number || item.slide || item.page || '',
+                        reference_text: item.reference_text || item.reference || '',
                         order: item.order || ''
                       });
                     });
@@ -638,7 +701,7 @@ async function loadRemoteQuestions() {
       return remoteQuestions;
     }
 
-async function loadFromStorage() {
+    async function loadFromStorage() {
       try {
         const savedBank = localStorage.getItem('renal_quiz_bank');
         if (savedBank) questionBank = JSON.parse(savedBank);
@@ -675,10 +738,8 @@ async function loadFromStorage() {
         }
       } catch(e) { console.warn('IndexedDB read error:', e); }
 
-      // Check for remote question files in questions/ folder
       const remoteQs = await loadRemoteQuestions();
       if (remoteQs.length > 0) {
-        // Upsert remote questions into questionBank (updates categories/lectures if changed)
         remoteQs.forEach(rq => {
           const idx = questionBank.findIndex(q => q.id === rq.id || (q.vignette === rq.vignette && q.lecture === rq.lecture));
           if (idx >= 0) {
@@ -692,7 +753,6 @@ async function loadFromStorage() {
         });
         saveToStorage();
       } else if (!questionBank || questionBank.length === 0) {
-        // Fallback to inline preloaded questions if offline
         questionBank = [...PRELOADED_QUESTIONS];
         saveToStorage();
       }
@@ -714,7 +774,7 @@ async function loadFromStorage() {
       } catch(e) {}
     }
 
-function saveToStorage() {
+    function saveToStorage() {
       try {
         localStorage.setItem('renal_quiz_bank', JSON.stringify(questionBank));
         localStorage.setItem('renal_quiz_history', JSON.stringify(userHistory));
@@ -748,7 +808,6 @@ function saveToStorage() {
       }
     }
 
-    // Listen for OS system theme changes dynamically if user hasn't set explicit preference
     if (window.matchMedia) {
       window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
         if (!localStorage.getItem('renal_quiz_mode')) {
@@ -766,8 +825,6 @@ function saveToStorage() {
       });
     }
 
-
-    // EXPANDABLE CATEGORY & LECTURE SELECTION GRID
     function renderCategoryGrid() {
       const grid = document.getElementById('category-selector-grid');
       grid.innerHTML = '';
@@ -867,7 +924,7 @@ function saveToStorage() {
     }
 
     function switchTab(tabName) {
-      ['launcher', 'quiz', 'review', 'analytics', 'bank'].forEach(t => {
+      ['launcher', 'quiz', 'review', 'analytics', 'slides', 'bank'].forEach(t => {
         document.getElementById(`tab-${t}`).classList.add('hidden');
         const navBtn = document.getElementById(`nav-${t}`);
         if (navBtn) navBtn.className = "px-3 py-1.5 rounded-md text-xs font-semibold opacity-80 hover:opacity-100 text-white";
@@ -879,6 +936,7 @@ function saveToStorage() {
       if (tabName === 'analytics') renderAnalytics();
       if (tabName === 'launcher') renderCategoryGrid();
       if (tabName === 'review') renderReviewList();
+      if (tabName === 'slides') populatePdfSelector();
     }
 
     function startQuiz() {
@@ -981,16 +1039,63 @@ function saveToStorage() {
       });
 
       const expBox = document.getElementById('explanation-box');
+      const refBox = document.getElementById('reference-box');
+
       if (quizSubmitted || (quizMode === 'practice' && selectedAnswers[currentIndex] !== undefined)) {
         expBox.classList.remove('hidden');
         document.getElementById('explanation-text').innerText = q.explanation || "No detailed explanation provided.";
+
+        // Handle Slide Reference display
+        const pdfUrl = q.pdf_url || (q.lecture ? `slides/${q.lecture.toLowerCase().replace(/[^a-z0-9]/g, '_')}.pdf` : '');
+        const slideNum = q.slide_number || '';
+        const customRefText = q.reference_text || (slideNum ? `Slide ${slideNum}` : '');
+
+        if (pdfUrl || slideNum || customRefText) {
+          refBox.classList.remove('hidden');
+          const labelText = customRefText ? `${q.lecture || 'Lecture'} • ${customRefText}` : `${q.lecture || 'Lecture PDF'}`;
+          document.getElementById('reference-label').innerText = labelText;
+          
+          const fullPdfTarget = slideNum ? `${pdfUrl}#page=${slideNum}` : pdfUrl;
+          document.getElementById('reference-external-link').href = fullPdfTarget || '#';
+        } else {
+          refBox.classList.add('hidden');
+        }
       } else {
         expBox.classList.add('hidden');
+        refBox.classList.add('hidden');
       }
 
       document.getElementById('prev-btn').disabled = currentIndex === 0;
       document.getElementById('next-btn').classList.toggle('hidden', currentIndex === currentQuiz.length - 1);
       document.getElementById('submit-btn').classList.toggle('hidden', quizSubmitted || currentIndex !== currentQuiz.length - 1);
+    }
+
+    function openSlideReferenceFromCurrent() {
+      const q = currentQuiz[currentIndex];
+      if (!q) return;
+      const pdfUrl = q.pdf_url || (q.lecture ? `slides/${q.lecture.toLowerCase().replace(/[^a-z0-9]/g, '_')}.pdf` : '');
+      const pageNum = q.slide_number || 1;
+      openSlideReference(pdfUrl, pageNum);
+    }
+
+    function openSlideReference(pdfUrl, pageNum) {
+      if (!pdfUrl) {
+        showToast("No explicit PDF file URL linked to this question.");
+        return;
+      }
+      switchTab('slides');
+      
+      const selector = document.getElementById('slide-pdf-selector');
+      let found = Array.from(selector.options).some(opt => opt.value === pdfUrl);
+      if (!found) {
+        const opt = document.createElement('option');
+        opt.value = pdfUrl;
+        opt.innerText = pdfUrl;
+        selector.appendChild(opt);
+      }
+      selector.value = pdfUrl;
+      document.getElementById('slide-page-input').value = pageNum || 1;
+      loadPdfViewer(pdfUrl, pageNum);
     }
 
     function selectOption(key) {
@@ -1046,7 +1151,6 @@ function saveToStorage() {
       switchTab('review');
     }
 
-    // POST-EXAM & QUESTION BANK REVIEW LIST
     function filterReviewList(filter) {
       currentReviewFilter = filter;
       ['all', 'incorrect', 'correct', 'bookmarked'].forEach(f => {
@@ -1137,6 +1241,22 @@ function saveToStorage() {
           </div>`;
         });
 
+        // Slide reference metadata for review item
+        const pdfUrl = q.pdf_url || (q.lecture ? `slides/${q.lecture.toLowerCase().replace(/[^a-z0-9]/g, '_')}.pdf` : '');
+        const slideNum = q.slide_number || '';
+        let refMarkup = '';
+
+        if (pdfUrl || slideNum) {
+          refMarkup = `
+            <div class="mt-2 pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-xs">
+              <span class="font-bold text-blue-600 dark:text-blue-400">📑 Reference: ${q.reference_text || (slideNum ? `Slide ${slideNum}` : 'PDF Slide')}</span>
+              <button onclick="openSlideReference('${pdfUrl}', '${slideNum || 1}')" class="px-2.5 py-1 text-[11px] font-bold rounded-md btn-primary-theme">
+                View Slide ➔
+              </button>
+            </div>
+          `;
+        }
+
         card.innerHTML = `
           <div class="flex justify-between items-center gap-2">
             <div class="flex items-center gap-2">
@@ -1159,6 +1279,7 @@ function saveToStorage() {
           <div class="p-3.5 bg-black/5 dark:bg-white/5 rounded-xl text-xs leading-relaxed border space-y-1 mt-2">
             <span class="font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Explanation & Rationale</span>
             <p class="text-slate-900 dark:text-slate-100 font-medium">${q.explanation || 'No explanation available.'}</p>
+            ${refMarkup}
           </div>
         `;
         container.appendChild(card);
@@ -1171,6 +1292,77 @@ function saveToStorage() {
       saveToStorage();
       renderReviewList();
       showToast(userHistory[id].bookmarked ? "Bookmarked question" : "Removed bookmark");
+    }
+
+    /* LECTURE SLIDES VIEWER LOGIC */
+    function populatePdfSelector() {
+      const selector = document.getElementById('slide-pdf-selector');
+      if (!selector) return;
+
+      const pdfs = new Set();
+      questionBank.forEach(q => {
+        if (q.pdf_url) pdfs.add(q.pdf_url);
+        else if (q.lecture) {
+          pdfs.add(`slides/${q.lecture.toLowerCase().replace(/[^a-z0-9]/g, '_')}.pdf`);
+        }
+      });
+
+      const currentVal = selector.value;
+      selector.innerHTML = `<option value="">-- Select Lecture PDF --</option>`;
+
+      pdfs.forEach(url => {
+        const opt = document.createElement('option');
+        opt.value = url;
+        const cleanName = url.split('/').pop().replace('.pdf', '').replace(/_/g, ' ');
+        opt.innerText = cleanName.toUpperCase();
+        selector.appendChild(opt);
+      });
+
+      if (currentVal && pdfs.has(currentVal)) {
+        selector.value = currentVal;
+      }
+    }
+
+    function loadSelectedPdf(pdfUrl) {
+      const pInput = document.getElementById('slide-page-input');
+      const pageNum = parseInt(pInput.value) || 1;
+      loadPdfViewer(pdfUrl, pageNum);
+    }
+
+    function jumpToPageInput() {
+      const selector = document.getElementById('slide-pdf-selector');
+      const pInput = document.getElementById('slide-page-input');
+      if (!selector.value) {
+        showToast("Please select a PDF file first.");
+        return;
+      }
+      loadPdfViewer(selector.value, parseInt(pInput.value) || 1);
+    }
+
+    function loadPdfViewer(pdfUrl, pageNum = 1) {
+      const frame = document.getElementById('pdf-viewer-frame');
+      const emptyState = document.getElementById('pdf-empty-state');
+      const extLink = document.getElementById('slides-open-external');
+
+      if (!pdfUrl) {
+        frame.classList.add('hidden');
+        emptyState.classList.remove('hidden');
+        extLink.href = "#";
+        return;
+      }
+
+      currentPdfUrl = pdfUrl;
+      currentPdfPage = pageNum;
+
+      const fullSrc = `${pdfUrl}#page=${pageNum}`;
+      frame.src = fullSrc;
+      frame.classList.remove('hidden');
+      emptyState.classList.add('hidden');
+      extLink.href = fullSrc;
+
+      document.getElementById('slide-page-input').value = pageNum;
+      const selector = document.getElementById('slide-pdf-selector');
+      if (selector.value !== pdfUrl) selector.value = pdfUrl;
     }
 
     function importJSON() {
@@ -1186,6 +1378,7 @@ function saveToStorage() {
         let parsed = JSON.parse(raw);
         let items = [];
         let rootLectureTitle = '';
+        let rootPdfUrl = parsed.pdf_url || parsed.slide_pdf || parsed.pdf || '';
 
         if (Array.isArray(parsed)) {
           items = parsed;
@@ -1210,7 +1403,6 @@ function saveToStorage() {
           const qId = `imp_${batchTimestamp}_${idx}_${rawId}`;
           const qCategory = (overrideCat !== 'auto') ? overrideCat : determineCategory(item, parsed, rootLectureTitle);
           
-          // Priority for Lecture Title: item.lecture_title -> root-level lecture_title -> item.lecture -> item.lecture_name -> item.topic -> fallback
           const qLecture = item.lecture_title || rootLectureTitle || item.lecture || item.lecture_name || item.topic || 'General Vignettes';
           const qExplanation = item.rationale || item.explanation || item.reasoning || '';
 
@@ -1222,6 +1414,9 @@ function saveToStorage() {
             explanation: qExplanation,
             category: qCategory,
             lecture: qLecture,
+            pdf_url: item.pdf_url || item.slide_pdf || item.pdf || rootPdfUrl || '',
+            slide_number: item.slide_number || item.slide || item.page || '',
+            reference_text: item.reference_text || item.reference || '',
             order: item.order || ''
           };
 
@@ -1233,6 +1428,7 @@ function saveToStorage() {
 
         saveToStorage();
         renderCategoryGrid();
+        populatePdfSelector();
         showToast(`Imported ${importedCount} questions under "${items[0]?.lecture_title || rootLectureTitle || 'General Vignettes'}"!`);
         document.getElementById('json-input').value = '';
       } catch (err) {
@@ -1250,7 +1446,6 @@ function saveToStorage() {
       dlAnchor.remove();
     }
 
-    
     async function syncFromRepo() {
       showToast("Fetching latest questions from repository...");
       const remoteQs = await loadRemoteQuestions();
@@ -1273,6 +1468,7 @@ function saveToStorage() {
         renderCategoryGrid();
         renderAnalytics();
         renderReviewList();
+        populatePdfSelector();
         showToast(`Synced! Updated ${updatedCount} questions from repository.`);
       } else {
         showToast("No new question files found in questions/ folder.");
@@ -1285,6 +1481,7 @@ function saveToStorage() {
       renderCategoryGrid();
       renderAnalytics();
       renderReviewList();
+      populatePdfSelector();
       showToast("Question bank reset to empty local state.");
     }
 
@@ -1295,10 +1492,10 @@ function saveToStorage() {
       renderCategoryGrid();
       renderAnalytics();
       renderReviewList();
+      populatePdfSelector();
       showToast("Cleared question bank.");
     }
 
-    // RADAR ANALYTICS: Evaluates accuracy (Correct ÷ Answered) for answered questions
     function renderAnalytics() {
       const container = document.getElementById('discipline-stats-container');
       container.innerHTML = '';
@@ -1370,7 +1567,6 @@ function saveToStorage() {
       const textColor = isDark ? '#f8fafc' : '#0f172a';
       const gridColor = isDark ? '#334155' : '#cbd5e1';
 
-      // 1. Concentric Level Rings (20%, 40%, 60%, 80%, 100%)
       for (let level = 20; level <= 100; level += 20) {
         const r = (radius / 100) * level;
         ctx.beginPath();
@@ -1386,7 +1582,6 @@ function saveToStorage() {
         ctx.fillText(level + "%", centerX, centerY - r + 3);
       }
 
-      // 2. Axis Lines
       statsData.forEach(item => {
         const x = centerX + Math.cos(item.angle) * radius;
         const y = centerY + Math.sin(item.angle) * radius;
@@ -1398,7 +1593,6 @@ function saveToStorage() {
         ctx.stroke();
       });
 
-      // 3. Score Coordinates (0% at center to 100% at outer ring)
       const points = statsData.map(item => {
         const r = (radius / 100) * item.percentage;
         return {
@@ -1407,7 +1601,6 @@ function saveToStorage() {
         };
       });
 
-      // 4. Polygon Peak Fill
       ctx.beginPath();
       ctx.moveTo(points[0].x, points[0].y);
       points.forEach((pt, i) => { if (i > 0) ctx.lineTo(pt.x, pt.y); });
@@ -1418,7 +1611,6 @@ function saveToStorage() {
       ctx.lineWidth = 3;
       ctx.stroke();
 
-      // 5. Dots & Labels
       statsData.forEach((item, i) => {
         const pt = points[i];
         ctx.beginPath();
